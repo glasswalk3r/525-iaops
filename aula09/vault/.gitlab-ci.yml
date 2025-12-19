@@ -1,0 +1,152 @@
+stages:
+  - secrets
+  - build
+  - push
+  - deploy
+
+variables:
+  IMAGE_TAG: "${CI_COMMIT_SHORT_SHA}"
+  IMAGE_URI: "${GAR_HOST}/${GCP_PROJECT_ID}/${REGISTRY_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
+  RENDERED_MANIFEST: "k8s/deploy.rendered.yaml"
+  USE_GKE_GCLOUD_AUTH_PLUGIN: "True"
+  GAR_HOST: "us-central1-docker.pkg.dev"
+  GCP_PROJECT_ID: "ID_PROJECT"
+  REGISTRY_REPO: "productcatalogservice"
+  IMAGE_NAME: "productcatalogservice"
+  GKE_CLUSTER: "gke-cluster-lab"
+  GKE_LOCATION: "us-central1-c"
+  GKE_NAMESPACE: "projeto"
+  K8S_MANIFEST: "k8s/deploy.yaml"
+  DEPLOY_NAME: "productcatalogservice"
+
+
+fetch_vault_secrets:
+  stage: secrets
+  tags:
+    - docker
+    - produtos
+  script:
+    - |
+      set -e
+
+      echo "Job fetch_vault_secrets: iniciando..."
+
+      # Configura uso de TLS inseguro (apenas para LAB) se VAULT_SKIP_VERIFY=true
+      if [ "$VAULT_SKIP_VERIFY" = "true" ]; then
+        CURL_TLS="-k"
+      else
+        CURL_TLS=""
+      fi
+
+      echo "VAULT_SKIP_VERIFY=$VAULT_SKIP_VERIFY -> usando curl $CURL_TLS"
+
+      echo ">> Fazendo login no Vault via AppRole..."
+      LOGIN_PAYLOAD=$(printf '{"role_id":"%s","secret_id":"%s"}' "$VAULT_ROLE_ID" "$VAULT_SECRET_ID")
+
+      LOGIN_RESPONSE=$(curl -sS $CURL_TLS -X POST \
+        "$VAULT_ADDR/v1/auth/approle/login" \
+        -H "Content-Type: application/json" \
+        -d "$LOGIN_PAYLOAD")
+
+      echo "Resposta do Vault (login):"
+      echo "$LOGIN_RESPONSE"
+
+      VAULT_TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r '.auth.client_token')
+
+      if [ -z "$VAULT_TOKEN" ] || [ "$VAULT_TOKEN" = "null" ]; then
+        echo "Erro: Não foi possível obter client_token do Vault."
+        exit 1
+      fi
+
+      echo ">> Lendo segredos de productcatalogservice..."
+      SECRETS_RESPONSE=$(curl -sS $CURL_TLS \
+        -H "X-Vault-Token: $VAULT_TOKEN" \
+        "$VAULT_ADDR/v1/secret/data/produtos/productcatalogservice")
+
+      echo "Resposta do Vault (secrets):"
+      echo "$SECRETS_RESPONSE"
+
+      CATALOG_API_KEY=$(echo "$SECRETS_RESPONSE" | jq -r '.data.data.CATALOG_API_KEY')
+      SENTRY_DSN=$(echo "$SECRETS_RESPONSE" | jq -r '.data.data.SENTRY_DSN')
+
+      if [ "$CATALOG_API_KEY" = "null" ] || [ -z "$CATALOG_API_KEY" ]; then
+        echo "Erro: CATALOG_API_KEY não encontrado no Vault."
+        exit 1
+      fi
+
+      if [ "$SENTRY_DSN" = "null" ] || [ -z "$SENTRY_DSN" ]; then
+        echo "Erro: SENTRY_DSN não encontrado no Vault."
+        exit 1
+      fi
+
+      echo "Gerando vault.env..."
+      printf 'CATALOG_API_KEY=%s\n' "$CATALOG_API_KEY" > vault.env
+      printf 'SENTRY_DSN=%s\n' "$SENTRY_DSN" >> vault.env
+
+      echo "Conteúdo de vault.env:"
+      cat vault.env
+  artifacts:
+    reports:
+      dotenv: vault.env
+    expire_in: 30m
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+before_script:
+  - |
+    if [ -n "$GCP_SA_KEY" ] && [ -f "$GCP_SA_KEY" ]; then
+      echo "Usando GCP_SA_KEY como arquivo."
+      KEY_FILE="$GCP_SA_KEY"
+    else
+      printf '%s' "$GCP_SA_KEY" > "${CI_PROJECT_DIR}/gcp-key.json"
+      KEY_FILE="${CI_PROJECT_DIR}/gcp-key.json"
+    fi
+  - gcloud auth activate-service-account --key-file="${KEY_FILE}"
+  - gcloud --quiet config set project "${GCP_PROJECT_ID}"
+  - gcloud --quiet auth configure-docker "${GAR_HOST}"
+  - gcloud components install -q gke-gcloud-auth-plugin || true
+
+build:
+  stage: build
+  tags:
+    - docker
+    - produtos
+  needs:
+    - fetch_vault_secrets
+  script:
+    - docker build --network=host -t "${IMAGE_URI}" .
+  artifacts:
+    when: always
+    expire_in: 1h
+    paths:
+      - gcp-key.json
+
+push:
+  stage: push
+  tags:
+    - docker
+    - produtos
+  needs:
+    - build
+  script:
+    - docker push "${IMAGE_URI}"
+
+deploy:
+  stage: deploy
+  tags:
+    - docker
+    - produtos
+  needs:
+    - push
+    - fetch_vault_secrets
+  script:
+    - gcloud container clusters get-credentials "${GKE_CLUSTER}" --zone "${GKE_LOCATION}"
+    - kubectl get ns "${GKE_NAMESPACE}" >/dev/null 2>&1 || kubectl create ns "${GKE_NAMESPACE}"
+    - |
+      kubectl -n "$GKE_NAMESPACE" create secret generic catalog-secrets \
+        --from-literal=CATALOG_API_KEY="$CATALOG_API_KEY" \
+        --from-literal=SENTRY_DSN="$SENTRY_DSN" \
+        --dry-run=client -o yaml | kubectl apply -f -
+    - sed -e "s#REPO_IMAGE_PLACEHOLDER#${IMAGE_URI}#g" "${K8S_MANIFEST}" > "${RENDERED_MANIFEST}"
+    - kubectl apply -n "${GKE_NAMESPACE}" -f "${RENDERED_MANIFEST}"
+    - kubectl rollout status -n "${GKE_NAMESPACE}" deploy/${DEPLOY_NAME} --timeout=90s

@@ -1,0 +1,41 @@
+stages: [build, run]
+
+variables:
+  APP_NAME: "web-flask"
+  IMAGE_TAG: "1.0.0"
+  IMAGE_NAME: "${APP_NAME}:${IMAGE_TAG}"
+  HOST_PORT: "5000"
+  CONTAINER_NAME: "web-flask-ci"
+
+default:
+  tags: [docker, web-flask]
+
+# Etapa 1 — build da imagem a partir do Dockerfile
+build:
+  stage: build
+  script:
+    - docker build --network=host -t "${IMAGE_NAME}" .
+  artifacts:
+    when: always
+    expire_in: 1h
+    paths: []
+
+# Etapa 2 — executa o container e valida com curl
+run:
+  stage: run
+  needs: [build]
+  script:
+    - |
+      # limpa container antigo (se existir)
+      if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}\$"; then
+        echo "Parando e removendo ${CONTAINER_NAME} anterior..."
+        docker rm -f "${CONTAINER_NAME}" || true
+      fi
+    - docker run -d --name "${CONTAINER_NAME}" -p ${HOST_PORT}:5000 "${IMAGE_NAME}"
+    - sleep 2
+    - echo "Testando endpoint..."
+    - curl -sS http://localhost:${HOST_PORT}
+  after_script:
+    - "echo \"Dica: acesse http://$(curl -s ifconfig.me):${HOST_PORT}\""
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'

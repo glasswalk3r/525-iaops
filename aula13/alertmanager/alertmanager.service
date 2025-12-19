@@ -1,0 +1,14 @@
+[Unit]
+Description=Prometheus Alertmanager
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=prometheus
+Group=prometheus
+Type=simple
+ExecStart=/usr/local/bin/alertmanager --config.file=/etc/prometheus/alertmanager.yml --storage.path=/etc/prometheus --web.external-url=http://IP:9093
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

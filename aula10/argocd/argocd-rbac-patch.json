@@ -1,0 +1,6 @@
+{
+  "data": {
+    "policy.csv": "p, role:gitops, applications, get, */*, allow\np, role:gitops, applications, create, */*, allow\np, role:gitops, applications, update, */*, allow\np, role:gitops, applications, delete, *, allow\np, role:gitops, applications, sync, */*, allow\np, role:gitops, repositories, get, */*, allow\np, role:gitops, repositories, create, */*, allow\np, role:gitops, repositories, delete, *, allow\np, role:gitops, repositories, sync, */*, allow\ng, gke-suporte, role:gitops",
+    "policy.default": "role:readonly"
+  }
+}

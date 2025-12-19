@@ -1,0 +1,11 @@
+groups:
+- name: nodes
+  rules:
+  - alert: NodeMemoriaDisponivelBaixa
+    expr: 100 * (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) < 20
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Memória disponível baixa na instância {{ $labels.instance }}"
+      description: "A instância {{ $labels.instance }} está com menos de 20% de memória disponível. Valor atual: {{ $value | printf \"%.2f\" }}%."

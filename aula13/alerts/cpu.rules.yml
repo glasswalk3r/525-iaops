@@ -1,0 +1,11 @@
+groups:
+- name: nodes
+  rules:
+  - alert: NodeCpuUsageHigh
+    expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 50
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Uso de CPU alto na instância {{ $labels.instance }}"
+      description: "O uso de CPU na instância {{ $labels.instance }} está acima de 50% (valor atual: {{ $value | printf \"%.2f\" }}%)."

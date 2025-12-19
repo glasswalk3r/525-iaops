@@ -1,0 +1,4 @@
+---
+- hosts: automation
+  roles:
+    - geerlingguy.ntp

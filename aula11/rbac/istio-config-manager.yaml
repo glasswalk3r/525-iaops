@@ -1,0 +1,27 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: istio-config-manager
+  namespace: projeto
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["create", "get", "list", "delete", "patch", "watch"]
+  - apiGroups: ["networking.istio.io"]
+    resources: ["gateways", "virtualservices", "destinationrules"]
+    verbs: ["create", "get", "list", "delete", "patch", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rb-istio-config-manager
+  namespace: projeto
+subjects:
+- kind: User
+  name: ACCOUNT
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: istio-config-manager
+  apiGroup: rbac.authorization.k8s.io

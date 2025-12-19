@@ -1,0 +1,11 @@
+groups:
+- name: nodes
+  rules:
+  - alert: NodeDiskSpaceLow
+    expr: 100 * (node_filesystem_avail_bytes{fstype=~"ext4|xfs"} / node_filesystem_size_bytes{fstype=~"ext4|xfs"}) < 20 and on(instance, device, mountpoint) node_filesystem_readonly{fstype=~"ext4|xfs"} == 0
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Espaço em disco baixo na instância {{ $labels.instance }}"
+      description: "O disco {{ $labels.device }} (montado em {{ $labels.mountpoint }}) na instância {{ $labels.instance }} tem menos de 20% de espaço livre. Espaço livre atual: {{ printf \"%.2f\" $value }}%."
