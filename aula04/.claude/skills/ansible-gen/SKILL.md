@@ -16,8 +16,6 @@ Parse from the user's request (ask for anything required that's missing):
 
 - `mode`: `playbook` or `role` (required)
 - `name`: playbook name (no extension) or role name (required)
-- `host`: value for `hosts:` in the playbook, or the target host/group used in the role's
-  `tests/inventory` (required)
 - `spec`: natural-language description of what it should do (required)
 - `root`: directory to write into (default: current directory)
 - `strict`: if the user says to be strict, treat any checklist error (see below) as something you
